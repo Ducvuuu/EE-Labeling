@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AC CSPF Ratings Heatmap</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@300;400;700&family=Noto+Color+Emoji&display=swap" rel="stylesheet">
+    <style>
+        
+        body {
+            font-family: 'Noto Sans', sans-serif;
+            background-color: #f0f4f8;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            color: #333;
+        }
+        #container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            max-width: 100%;
+            overflow-x: auto;
+        }
+        #heatmap {
+            margin-bottom: 30px;
+        }
+        .cell-text {
+            font-size: 13px;
+            font-weight: 400;
+        }
+        .axis-label {
+            font-size: 18px;
+            font-weight: 700;
+            fill: #555;
+        }
+        .title {
+            font-size: 32px;
+            font-weight: 700;
+            fill: #333;
+        }
+        .subtitle {
+            font-size: 18px;
+            font-weight: 400;
+            fill: #666;
+        }
+        .axis text {
+            font-size: 14px;
+            fill: #666;
+        }
+        .axis line, .axis path {
+            stroke: #ddd;
+        }
+        .legend-title {
+            font-size: 16px;
+            font-weight: 700;
+            fill: #555;
+        }
+        .star {
+            fill: #003366;
+        }
+        .flag {
+            font-family: 'Noto Color Emoji', sans-serif;
+        }
+        #notes {
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+            margin-top: 20px;
+            font-size: 14px;
+            color: #666;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        #notes h3 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        #notes ol {
+            padding-left: 20px;
+            margin: 0;
+        }
+        #notes li {
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        #notes .sub-list {
+            margin-top: 5px;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="heatmap"></div>
+        <div id="notes">
+            <h3>Notes:</h3>
+            <ol>
+                <li>Brunei Darussalam, Cambodia, Myanmar, and Philippines: N/A (No star-based labeling system reported)</li>
+                <li>Lao PDR: Insufficient information</li>
+                <li>Singapore uses a tick-based system instead of stars:
+                    <ul class="sub-list">
+                        <li>1 tick: Low, 2 ticks: Fair, 3 ticks: Good, 4 ticks: Very Good, 5 ticks: Excellent</li>
+                    </ul>
+                </li>
+                <li>Vietnam's data is based on the TCVN 7830:2015 standard</li>
+                <li>CSPF: Cooling Seasonal Performance Factor</li>
+                <li>SEER: Seasonal Energy Efficiency Ratio</li>
+                <li>Thailand's SEER values have been converted to CSPF according to Park, W. Y., Shah, N., Choi, J. Y., Kang, H. J., Kim, D. H., & Phadke, A. (2020). Lost in translation: Overcoming divergent seasonal performance metrics to strengthen air conditioner energy-efficiency policies. Energy for Sustainable Development, 55, 56-68. <a href="https://doi.org/10.1016/j.esd.2020.01.003" target="_blank">https://doi.org/10.1016/j.esd.2020.01.003</a></li>
+                <li>Formula used for conversion from SEER to CSPF: ISO CSPF = 1.039 × U.S. SEER - 0.088</li>
+            </ol>
+        </div>
+    </div>
+    <script>
+        // Set up dimensions
+        const margin = {top: 120, right: 150, bottom: 120, left: 320};
+        const width = Math.min(1400, window.innerWidth - 40) - margin.left - margin.right;
+        const height = 1200 - margin.top - margin.bottom;
+
+        // Create SVG
+        const svg = d3.select("#heatmap")
+            .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Define flag emojis
+        const flagEmojis = {
+            'Indonesia': '🇮🇩',
+            'Malaysia': '🇲🇾',
+            'Thailand': '🇹🇭',
+            'Vietnam': '🇻🇳'
+        };
+
+        // Load and process data
+        d3.csv("Labeling.csv").then(function(data) {
+            const starColumns = ['0 Star', '1 Star', '2 Star', '3 Star', '4 Star', '5 Star'];
+            
+            const processedData = data.map(d => {
+                const rowLabel = `<tspan class="flag">${flagEmojis[d.Country]}</tspan> ${d.Country} - ${d['AC Type']} (${d['Capacity Min (kW)']}-${d['Capacity Max (kW)']} kW)`;
+                const values = starColumns.map(col => {
+                    const min = parseFloat(d[`${col} Min`]);
+                    const max = parseFloat(d[`${col} Max`]);
+                    return { min, max, avg: (min + max) / 2 };
+                });
+                return { 
+                    rowLabel, 
+                    values, 
+                    country: d.Country, 
+                    capacityMin: parseFloat(d['Capacity Min (kW)']),
+                    capacityMax: parseFloat(d['Capacity Max (kW)']),
+                    acType: d['AC Type'] 
+                };
+            });
+
+            // Sort the data
+            processedData.sort((a, b) => {
+                if (a.country !== b.country) return a.country.localeCompare(b.country);
+                if (a.acType !== b.acType) return a.acType.localeCompare(b.acType);
+                return a.capacityMin - b.capacityMin;
+            });
+
+            // Set up scales
+            const x = d3.scaleBand()
+                .range([0, width])
+                .domain(starColumns)
+                .padding(0.05);
+
+            const y = d3.scaleBand()
+                .range([0, height])
+                .domain(processedData.map(d => d.rowLabel))
+                .padding(0.1);
+
+            // Updated color scale with higher contrast
+            const color = d3.scaleSequential(t => d3.interpolateRgb("#e6f3ff", "#003366")(t * t))
+                .domain([d3.min(processedData, d => d3.min(d.values.filter(v => !isNaN(v.avg)), v => v.avg)),
+                         d3.max(processedData, d => d3.max(d.values.filter(v => !isNaN(v.avg)), v => v.avg))]);
+
+            // Add X axis
+            svg.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x))
+                .selectAll("text")
+                .attr("transform", "translate(-10,0)rotate(-45)")
+                .style("text-anchor", "end")
+                .each(function(d, i) {
+                    const starCount = i;
+                    const text = d3.select(this);
+                    text.text(`${starCount} ★`);
+                })
+                .attr("class", "star");
+
+            // Add Y axis
+            svg.append("g")
+                .attr("class", "axis")
+                .call(d3.axisLeft(y))
+                .selectAll(".tick text")
+                .html(d => d);  // This allows the HTML in rowLabel to be rendered
+
+            // Create heatmap cells
+            svg.selectAll()
+                .data(processedData)
+                .enter()
+                .append("g")
+                .selectAll()
+                .data(d => starColumns.map((col, i) => ({col, value: d.values[i], rowLabel: d.rowLabel})))
+                .enter()
+                .append("rect")
+                .attr("x", d => x(d.col))
+                .attr("y", d => y(d.rowLabel))
+                .attr("width", x.bandwidth())
+                .attr("height", y.bandwidth())
+                .style("fill", d => isNaN(d.value.avg) ? "#f0f0f0" : color(d.value.avg))
+                .style("stroke", "#fff")
+                .style("stroke-width", 1);
+
+            // Add text to cells
+            svg.selectAll()
+                .data(processedData)
+                .enter()
+                .append("g")
+                .selectAll()
+                .data(d => starColumns.map((col, i) => ({col, value: d.values[i], rowLabel: d.rowLabel})))
+                .enter()
+                .append("text")
+                .attr("x", d => x(d.col) + x.bandwidth() / 2)
+                .attr("y", d => y(d.rowLabel) + y.bandwidth() / 2)
+                .attr("dy", ".35em")
+                .attr("text-anchor", "middle")
+                .text(d => {
+                    if (isNaN(d.value.min) || isNaN(d.value.max)) return "N/A";
+                    if (d.col === '5 Star') return `≥${d.value.min.toFixed(1)}`;
+                    return `${d.value.min.toFixed(1)}-${d.value.max.toFixed(1)}`;
+                })
+                .attr("class", "cell-text")
+                .style("fill", d => {
+                    if (isNaN(d.value.avg)) return "#999";
+                    const brightness = d3.lab(color(d.value.avg)).l;
+                    return brightness > 50 ? "#333" : "#fff";
+                });
+
+            // Add title
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", -margin.top / 2 - 20)
+                .attr("text-anchor", "middle")
+                .attr("class", "title")
+                .text("AC CSPF Ratings by Country, Type, and Capacity Range");
+
+            // Add subtitle
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", -margin.top / 2 + 20)
+                .attr("text-anchor", "middle")
+                .attr("class", "subtitle")
+                .text("Comparison of energy efficiency standards across Southeast Asian countries");
+
+            // Add X axis label
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", height + margin.bottom - 20)
+                .attr("text-anchor", "middle")
+                .attr("class", "axis-label")
+                .text("Star Rating");
+
+            // Add Y axis label
+            svg.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("x", -height / 2)
+                .attr("y", -margin.left + 30)
+                .attr("text-anchor", "middle")
+                .attr("class", "axis-label")
+                .text("Country - AC Type (Capacity Range)");
+
+            // Modify 5 Star label
+            svg.selectAll(".tick")
+                .filter(function(d) { return d === "5 Star"; })
+                .select("text")
+                .text("5 ★ (≥)")
+                .attr("class", "star");
+
+            // Add color legend
+            const legendWidth = 30;
+            const legendHeight = height;
+            const legendScale = d3.scaleLinear()
+                .domain(color.domain())
+                .range([legendHeight, 0]);
+
+            const legend = svg.append("g")
+                .attr("transform", `translate(${width + 50}, 0)`);
+
+            legend.selectAll("rect")
+                .data(d3.range(0, legendHeight))
+                .enter()
+                .append("rect")
+                .attr("x", 0)
+                .attr("y", d => d)
+                .attr("width", legendWidth)
+                .attr("height", 1)
+                .style("fill", d => color(legendScale.invert(d)));
+
+            const legendAxis = d3.axisRight(legendScale)
+                .ticks(5)
+                .tickFormat(d3.format(".1f"));
+
+            legend.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(${legendWidth}, 0)`)
+                .call(legendAxis);
+
+            legend.append("text")
+                .attr("transform", "rotate(90)")
+                .attr("x", legendHeight / 2)
+                .attr("y", -legendWidth - 45)
+                .attr("text-anchor", "middle")
+                .attr("class", "legend-title")
+                .text("CSPF");
+        });
+    </script>
+</body>
+</html>
